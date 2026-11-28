@@ -105,7 +105,19 @@ function createStore(dbPath) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reminders (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT,
+      title TEXT NOT NULL,
+      date TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      note TEXT,
+      source TEXT,
+      notified_on TEXT,
+      created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_reminders_date ON reminders(date);
   `);
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all().map((row) => row.name);
   if (!messageColumns.includes('reply_to')) db.exec('ALTER TABLE messages ADD COLUMN reply_to TEXT');
@@ -144,6 +156,19 @@ function createStore(dbPath) {
       timeIndex: row.time_index == null ? null : Number(row.time_index),
       fuzzy: row.fuzzy || '',
       gender: row.gender || '',
+      createdAt: row.created_at
+    };
+  }
+  function mapReminder(row) {
+    return {
+      id: row.id,
+      profileId: row.profile_id || null,
+      title: row.title,
+      date: row.date,
+      kind: row.kind,
+      note: row.note || '',
+      source: row.source || '',
+      notifiedOn: row.notified_on || '',
       createdAt: row.created_at
     };
   }
@@ -523,6 +548,59 @@ function createStore(dbPath) {
     return { conversation: mapConversation(conversationRow(conversationId)) };
   }
 
+  const REMINDER_KINDS = ['birthday', 'anniversary', 'meeting', 'exam', 'other'];
+  function cleanReminder(input) {
+    const title = cleanName(input && input.title, '给这一天起个名字，比如「六级考试」或「妈妈生日」。');
+    const date = String(input && input.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('日期要写成 2026-11-30 这样。');
+    const kind = REMINDER_KINDS.includes(input && input.kind) ? input.kind : 'other';
+    const note = String(input && input.note || '').slice(0, 80);
+    const source = String(input && input.source || '').slice(0, 160);
+    const profileId = input && input.profileId ? String(input.profileId) : null;
+    if (profileId && !db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId)) throw new Error('找不到这份命主档案。');
+    return { id: input && input.id ? String(input.id) : '', title, date, kind, note, source, profileId };
+  }
+  function listReminders() {
+    return db.prepare('SELECT * FROM reminders ORDER BY date ASC, created_at ASC').all().map(mapReminder);
+  }
+  function saveReminder(input) {
+    const reminder = cleanReminder(input || {});
+    const id = reminder.id || randomUUID();
+    if (reminder.id && !db.prepare('SELECT id FROM reminders WHERE id = ?').get(id)) throw new Error('找不到这条提醒。');
+    transaction(() => {
+      if (reminder.id) {
+        db.prepare('UPDATE reminders SET profile_id = ?, title = ?, date = ?, kind = ?, note = ?, source = ? WHERE id = ?')
+          .run(reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, id);
+      } else {
+        db.prepare(`INSERT INTO reminders (id, profile_id, title, date, kind, note, source, notified_on, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`).run(id, reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, now());
+      }
+    });
+    return { reminder: mapReminder(db.prepare('SELECT * FROM reminders WHERE id = ?').get(id)), reminders: listReminders() };
+  }
+  function deleteReminder(id) {
+    db.prepare('DELETE FROM reminders WHERE id = ?').run(String(id || ''));
+    return { reminders: listReminders() };
+  }
+  function yearlyOf(kind) {
+    return kind === 'birthday' || kind === 'anniversary';
+  }
+  function dueReminders(day) {
+    const target = String(day || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) throw new Error('日期要写成 2026-11-30 这样。');
+    const monthDay = target.slice(5);
+    return db.prepare('SELECT * FROM reminders ORDER BY date ASC').all().filter((row) => {
+      const hit = row.date === target || (yearlyOf(row.kind) && String(row.date || '').slice(5) === monthDay);
+      return hit && row.notified_on !== target;
+    }).map(mapReminder);
+  }
+  function markReminderNotified(id, day) {
+    const target = String(day || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) throw new Error('日期要写成 2026-11-30 这样。');
+    db.prepare('UPDATE reminders SET notified_on = ? WHERE id = ?').run(target, String(id || ''));
+    return { ok: true };
+  }
+
   return {
     bootstrap,
     setIdentity,
@@ -540,6 +618,11 @@ function createStore(dbPath) {
     saveSnapshot,
     getSnapshot,
     clearSnapshot,
+    listReminders,
+    saveReminder,
+    deleteReminder,
+    dueReminders,
+    markReminderNotified,
     close: () => db.close()
   };
 }

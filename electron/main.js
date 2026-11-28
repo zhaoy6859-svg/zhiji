@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, session, Notification } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createStore } = require('./store.cjs');
@@ -9,6 +9,7 @@ const { RULE_VERSION, SCHOOL, evaluateStructure, gradeReply, examFixture } = req
 const { resolveTurn } = require('../app/turn.js');
 
 app.setName('知几');
+if (process.platform === 'win32') app.setAppUserModelId('com.zhiji.desktop');
 let store;
 
 const DEFAULT_N8N = 'http://127.0.0.1:5678/webhook/zhiji-consult';
@@ -79,6 +80,38 @@ function parseIcs(text) {
   return events
     .sort((a, b) => String(a.start).localeCompare(String(b.start)))
     .slice(0, 80);
+}
+
+function localDay(date) {
+  const at = date instanceof Date ? date : new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return at.getFullYear() + '-' + pad(at.getMonth() + 1) + '-' + pad(at.getDate());
+}
+
+const REMINDER_CHECK_MS = 30 * 60 * 1000;
+function remindToday() {
+  if (!store) return [];
+  const day = localDay();
+  const due = store.dueReminders(day);
+  if (!due.length) return [];
+  if (!Notification.isSupported()) return [];
+  for (const item of due) {
+    const notification = new Notification({
+      title: '知几 · 今天',
+      body: item.note ? item.title + ' · ' + item.note : item.title
+    });
+    notification.on('click', () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      win.webContents.send('zhiji:open-reminders');
+    });
+    notification.show();
+    store.markReminderNotified(item.id, day);
+  }
+  return due;
 }
 
 function readConfig() {
@@ -353,10 +386,16 @@ app.whenReady().then(() => {
     const events = parseIcs(fs.readFileSync(file, 'utf8'));
     return { path: file, events };
   });
+  ipcMain.handle('zhiji:list-reminders', () => ({ reminders: store.listReminders(), day: localDay() }));
+  ipcMain.handle('zhiji:save-reminder', (_event, input) => store.saveReminder(input || {}));
+  ipcMain.handle('zhiji:delete-reminder', (_event, id) => store.deleteReminder(id));
+  ipcMain.handle('zhiji:check-reminders', () => remindToday().map((item) => ({ id: item.id, title: item.title, date: item.date })));
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone');
   });
   createWindow();
+  setTimeout(() => { try { remindToday(); } catch { /* 通知失败不该拦住启动 */ } }, 4000);
+  setInterval(() => { try { remindToday(); } catch { /* 同上 */ } }, REMINDER_CHECK_MS);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -9,6 +9,15 @@ contextBridge.exposeInMainWorld('zhiji', {
   chooseFolder: () => ipcRenderer.invoke('zhiji:choose-folder'),
   readWorkspaceFile: (name) => ipcRenderer.invoke('zhiji:read-workspace-file', name),
   chooseCalendar: () => ipcRenderer.invoke('zhiji:choose-calendar'),
+  listReminders: () => ipcRenderer.invoke('zhiji:list-reminders'),
+  saveReminder: (input) => ipcRenderer.invoke('zhiji:save-reminder', input),
+  deleteReminder: (id) => ipcRenderer.invoke('zhiji:delete-reminder', id),
+  checkReminders: () => ipcRenderer.invoke('zhiji:check-reminders'),
+  onOpenReminders: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on('zhiji:open-reminders', listener);
+    return () => ipcRenderer.removeListener('zhiji:open-reminders', listener);
+  },
   bootstrap: () => ipcRenderer.invoke('zhiji:bootstrap'),
   setIdentity: (input) => ipcRenderer.invoke('zhiji:set-identity', input),
   updateIdentity: (input) => ipcRenderer.invoke('zhiji:update-identity', input),
