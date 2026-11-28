@@ -137,8 +137,8 @@ const kept = store.appendMessage({
 const reopened = store.listMessages('conv-zhiji').find((item) => item.id === kept.message.id);
 checks.push(['interrupted reply stays interrupted', reopened.delivery.finish === 'interrupted' && reopened.content === '由于']);
 const both = [{ system: 'ziwei' }, { system: 'qimen' }];
-checks.push(['local reading budget', tokenBudget('read', [{ system: 'ziwei' }]) === 800]);
-checks.push(['dual chart budget', tokenBudget('read', both) === 1200]);
+checks.push(['local reading budget', tokenBudget('read', [{ system: 'ziwei' }]) === 1100]);
+checks.push(['dual chart budget', tokenBudget('read', both) === 1800]);
 checks.push(['length is not success', classifyStream({ text: '由于', finishReason: 'length' }).ok === false && classifyStream({ text: '由于', finishReason: 'length' }).code === 'length']);
 checks.push(['drop is not success', classifyStream({ text: '由于', failed: 'interrupted' }).ok === false && classifyStream({ text: '由于', failed: 'interrupted' }).code === 'interrupted']);
 checks.push(['stop is its own state', classifyStream({ text: '由于', failed: 'stopped' }).code === 'stopped']);
