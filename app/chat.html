@@ -280,7 +280,12 @@
       </header>
       <p class="sheet-note">生日和纪念日每年提一次；考试、约定这类只记这一天，也可以按「每 N 天」重复。到日子当天，知几会弹一次系统通知，内容只在这台电脑上。</p>
       <div class="reminder-layout">
-        <div class="reminder-list" id="reminder-list"></div>
+        <div class="reminder-side">
+          <label class="field reminder-filter">只看谁的
+            <select id="reminder-filter"></select>
+          </label>
+          <div class="reminder-list" id="reminder-list"></div>
+        </div>
         <div class="reminder-fields">
           <label class="field">记什么
             <input id="reminder-title" maxlength="24" placeholder="六级考试、妈妈生日">
@@ -300,19 +305,31 @@
           <label class="field">备注，可不填
             <input id="reminder-note" maxlength="40" placeholder="在哪儿、要带什么">
           </label>
-          <label class="field" id="reminder-every-field">重复
-            <select id="reminder-every">
-              <option value="0">只这一次</option>
-              <option value="2">每 2 天</option>
-              <option value="3">每 3 天</option>
-              <option value="7">每 7 天</option>
-              <option value="14">每 14 天</option>
-              <option value="30">每 30 天</option>
-            </select>
-          </label>
-          <label class="reminder-check" id="reminder-advance-field">
-            <input id="reminder-advance" type="checkbox">
-            <span>提前一天也提醒一次</span>
+          <div class="reminder-pair">
+            <label class="field" id="reminder-every-field">重复
+              <select id="reminder-every">
+                <option value="0">只这一次</option>
+                <option value="2">每 2 天</option>
+                <option value="3">每 3 天</option>
+                <option value="7">每 7 天</option>
+                <option value="14">每 14 天</option>
+                <option value="30">每 30 天</option>
+              </select>
+            </label>
+            <label class="field" id="reminder-ahead-field">提前几天提醒
+              <select id="reminder-ahead">
+                <option value="0">当天提醒</option>
+                <option value="1">提前 1 天</option>
+                <option value="2">提前 2 天</option>
+                <option value="3">提前 3 天</option>
+                <option value="5">提前 5 天</option>
+                <option value="7">提前 7 天</option>
+                <option value="14">提前 14 天</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">这是谁的
+            <select id="reminder-profile"></select>
           </label>
           <p class="form-error" id="reminder-error" role="alert" hidden></p>
           <div class="sheet-actions">

@@ -1686,6 +1686,14 @@ function reminderEvery(item) {
   const every = Math.floor(Number(item.everyDays || 0));
   return Number.isFinite(every) && every > 0 ? every : 0;
 }
+function reminderAhead(item) {
+  const ahead = Math.floor(Number(item.aheadDays || 0));
+  return Number.isFinite(ahead) && ahead > 0 ? ahead : 0;
+}
+function reminderProfileName(id) {
+  const found = (state.profiles || []).find((item) => item.id === id);
+  return found ? found.name : '';
+}
 function reminderNext(item, today) {
   const every = reminderEvery(item);
   if (reminderYearly(item)) {
@@ -1717,11 +1725,17 @@ function renderReminders() {
   if (!host) return;
   host.replaceChildren();
   const today = state.reminderDay || new Date().toISOString().slice(0, 10);
+  const filter = state.reminderFilter || '';
+  const visible = filter ? reminderCache.filter((item) => item.profileId === filter) : reminderCache;
   if (!reminderCache.length) {
     host.append(el('p', 'sheet-note', '还没有记下任何一天。'));
     return;
   }
-  const sorted = reminderCache.slice().sort((a, b) => reminderDay(reminderNext(a, today)) - reminderDay(reminderNext(b, today)));
+  if (!visible.length) {
+    host.append(el('p', 'sheet-note', '这个人还没有提醒。'));
+    return;
+  }
+  const sorted = visible.slice().sort((a, b) => reminderDay(reminderNext(a, today)) - reminderDay(reminderNext(b, today)));
   for (const item of sorted) {
     const row = el('button', 'reminder-row' + (item.id === reminderPicked ? ' is-picked' : ''));
     row.type = 'button';
@@ -1730,22 +1744,53 @@ function renderReminders() {
     row.append(el('span', 'reminder-row-when', reminderWhen(item, today)));
     const meta = [REMINDER_KIND_LABEL[item.kind] || '其他'];
     if (reminderEvery(item) > 0) meta.push('每 ' + reminderEvery(item) + ' 天');
-    if (item.advance) meta.push('提前一天');
+    if (reminderAhead(item) > 0) meta.push(reminderAhead(item) === 1 ? '提前一天' : '提前 ' + reminderAhead(item) + ' 天');
     if (item.note) meta.push(item.note);
+    const owner = reminderProfileName(item.profileId);
+    if (owner && !filter) meta.push(owner);
     row.append(el('span', 'reminder-row-meta', meta.join(' · ')));
     host.append(row);
   }
 }
-function reminderEveryOption(value) {
-  const select = $('reminder-every');
+function reminderOption(selectId, value, label) {
+  const select = $(selectId);
   const text = String(value || 0);
   if (Number(text) > 0 && !Array.from(select.options).some((option) => option.value === text)) {
     const option = document.createElement('option');
     option.value = text;
-    option.textContent = '每 ' + text + ' 天';
+    option.textContent = label;
     select.append(option);
   }
   return text;
+}
+function fillReminderProfiles() {
+  const filter = $('reminder-filter');
+  const owner = $('reminder-profile');
+  if (!filter || !owner) return;
+  const keepFilter = filter.value || '';
+  const keepOwner = owner.value || '';
+  filter.replaceChildren();
+  owner.replaceChildren();
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = '全部';
+  filter.append(all);
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '不指定（都提醒）';
+  owner.append(none);
+  for (const profile of state.profiles || []) {
+    const one = document.createElement('option');
+    one.value = profile.id;
+    one.textContent = profile.name;
+    filter.append(one);
+    const other = document.createElement('option');
+    other.value = profile.id;
+    other.textContent = profile.name;
+    owner.append(other);
+  }
+  filter.value = keepFilter;
+  owner.value = keepOwner;
 }
 function syncReminderKind() {
   const yearly = reminderYearly({ kind: $('reminder-kind').value });
@@ -1759,15 +1804,16 @@ function pickReminder(item) {
   $('reminder-date').value = item.date;
   $('reminder-kind').value = item.kind;
   $('reminder-note').value = item.note || '';
-  $('reminder-advance').checked = Boolean(item.advance);
   syncReminderKind();
-  $('reminder-every').value = reminderEveryOption(reminderEvery(item));
+  $('reminder-every').value = reminderOption('reminder-every', reminderEvery(item), '每 ' + reminderEvery(item) + ' 天');
+  $('reminder-ahead').value = reminderOption('reminder-ahead', reminderAhead(item), '提前 ' + reminderAhead(item) + ' 天');
+  $('reminder-profile').value = item.profileId || '';
   $('reminder-error').hidden = true;
   const bits = [];
   if (reminderYearly(item)) bits.push('每年 ' + String(item.date).slice(5) + ' 提一次');
   else if (reminderEvery(item) > 0) bits.push('从 ' + item.date + ' 起，每 ' + reminderEvery(item) + ' 天提一次');
   else bits.push('只在 ' + item.date + ' 提一次');
-  if (item.advance) bits.push('前一天再提一次');
+  if (reminderAhead(item) > 0) bits.push(reminderAhead(item) === 1 ? '前一天再提一次' : '提前 ' + reminderAhead(item) + ' 天再提一次');
   $('reminder-line').textContent = bits.join('，') + '。';
   renderReminders();
 }
@@ -1777,8 +1823,9 @@ function clearReminderForm() {
   $('reminder-date').value = state.reminderDay || '';
   $('reminder-kind').value = 'exam';
   $('reminder-note').value = '';
-  $('reminder-advance').checked = false;
   $('reminder-every').value = '0';
+  $('reminder-ahead').value = '0';
+  $('reminder-profile').value = state.reminderFilter || '';
   syncReminderKind();
   $('reminder-line').textContent = '';
   $('reminder-error').hidden = true;
@@ -1788,6 +1835,8 @@ async function openReminders() {
   const data = await window.zhiji.listReminders();
   reminderCache = data.reminders || [];
   state.reminderDay = data.day || '';
+  state.reminderFilter = state.reminderFilter || '';
+  fillReminderProfiles();
   if (reminderPicked && !reminderCache.some((item) => item.id === reminderPicked)) reminderPicked = '';
   if (!reminderPicked) clearReminderForm();
   renderReminders();
@@ -1802,7 +1851,8 @@ async function saveReminderForm() {
     kind: $('reminder-kind').value,
     note: $('reminder-note').value,
     everyDays: Number($('reminder-every').value || 0),
-    advance: $('reminder-advance').checked
+    aheadDays: Number($('reminder-ahead').value || 0),
+    profileId: $('reminder-profile').value || null
   });
   reminderCache = saved.reminders || reminderCache;
   reminderPicked = saved.reminder.id;
@@ -1939,6 +1989,10 @@ function bind() {
   $('open-reminders').addEventListener('click', () => openReminders().catch((error) => showFormError('reminder-error', error)));
   $('reminders-close').addEventListener('click', () => $('reminders-dialog').close());
   $('reminder-kind').addEventListener('change', syncReminderKind);
+  $('reminder-filter').addEventListener('change', () => {
+    state.reminderFilter = $('reminder-filter').value || '';
+    renderReminders();
+  });
   $('reminders-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -1990,7 +2044,8 @@ function bind() {
           note: item.location || '',
           source: picked.path,
           everyDays: 0,
-          advance: false
+          aheadDays: 0,
+          profileId: state.reminderFilter || null
         });
         reminderCache = saved.reminders || reminderCache;
         added += 1;
