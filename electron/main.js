@@ -96,9 +96,12 @@ function remindToday() {
   if (!due.length) return [];
   if (!Notification.isSupported()) return [];
   for (const item of due) {
+    const body = item.ahead
+      ? '明天' + (item.note ? '：' + item.title + ' · ' + item.note : '：' + item.title)
+      : item.note ? item.title + ' · ' + item.note : item.title;
     const notification = new Notification({
-      title: '知几 · 今天',
-      body: item.note ? item.title + ' · ' + item.note : item.title
+      title: item.ahead ? '知几 · 明天' : '知几 · 今天',
+      body
     });
     notification.on('click', () => {
       const win = BrowserWindow.getAllWindows()[0];
@@ -109,7 +112,7 @@ function remindToday() {
       win.webContents.send('zhiji:open-reminders');
     });
     notification.show();
-    store.markReminderNotified(item.id, day);
+    store.markReminderNotified(item.id, item.target || day, item.ahead);
   }
   return due;
 }
@@ -389,7 +392,7 @@ app.whenReady().then(() => {
   ipcMain.handle('zhiji:list-reminders', () => ({ reminders: store.listReminders(), day: localDay() }));
   ipcMain.handle('zhiji:save-reminder', (_event, input) => store.saveReminder(input || {}));
   ipcMain.handle('zhiji:delete-reminder', (_event, id) => store.deleteReminder(id));
-  ipcMain.handle('zhiji:check-reminders', () => remindToday().map((item) => ({ id: item.id, title: item.title, date: item.date })));
+  ipcMain.handle('zhiji:check-reminders', () => remindToday().map((item) => ({ id: item.id, title: item.title, date: item.target || item.date, ahead: Boolean(item.ahead) })));
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone');
   });
