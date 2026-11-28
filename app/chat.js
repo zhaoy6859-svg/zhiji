@@ -1682,12 +1682,27 @@ function reminderDay(date) {
 function reminderYearly(item) {
   return item.kind === 'birthday' || item.kind === 'anniversary';
 }
+function reminderEvery(item) {
+  const every = Math.floor(Number(item.everyDays || 0));
+  return Number.isFinite(every) && every > 0 ? every : 0;
+}
 function reminderNext(item, today) {
-  if (!reminderYearly(item)) return item.date;
-  const tail = String(item.date || '').slice(5);
-  const thisYear = String(today || '').slice(0, 4) + '-' + tail;
-  if (reminderDay(thisYear) >= reminderDay(today)) return thisYear;
-  return String(Number(String(today || '').slice(0, 4)) + 1) + '-' + tail;
+  const every = reminderEvery(item);
+  if (reminderYearly(item)) {
+    const tail = String(item.date || '').slice(5);
+    const thisYear = String(today || '').slice(0, 4) + '-' + tail;
+    if (reminderDay(thisYear) >= reminderDay(today)) return thisYear;
+    return String(Number(String(today || '').slice(0, 4)) + 1) + '-' + tail;
+  }
+  if (every > 0) {
+    const anchor = reminderDay(item.date);
+    const gap = Math.round((reminderDay(today) - anchor) / 86400000);
+    const step = gap <= 0 ? 0 : Math.ceil(gap / every) * every;
+    const at = new Date(anchor + step * 86400000);
+    const pad = (value) => String(value).padStart(2, '0');
+    return at.getFullYear() + '-' + pad(at.getMonth() + 1) + '-' + pad(at.getDate());
+  }
+  return item.date;
 }
 function reminderWhen(item, today) {
   const next = reminderNext(item, today);
@@ -1713,9 +1728,30 @@ function renderReminders() {
     row.addEventListener('click', () => pickReminder(item));
     row.append(el('span', 'reminder-row-title', item.title));
     row.append(el('span', 'reminder-row-when', reminderWhen(item, today)));
-    row.append(el('span', 'reminder-row-meta', (REMINDER_KIND_LABEL[item.kind] || '其他') + (item.note ? ' · ' + item.note : '')));
+    const meta = [REMINDER_KIND_LABEL[item.kind] || '其他'];
+    if (reminderEvery(item) > 0) meta.push('每 ' + reminderEvery(item) + ' 天');
+    if (item.advance) meta.push('提前一天');
+    if (item.note) meta.push(item.note);
+    row.append(el('span', 'reminder-row-meta', meta.join(' · ')));
     host.append(row);
   }
+}
+function reminderEveryOption(value) {
+  const select = $('reminder-every');
+  const text = String(value || 0);
+  if (Number(text) > 0 && !Array.from(select.options).some((option) => option.value === text)) {
+    const option = document.createElement('option');
+    option.value = text;
+    option.textContent = '每 ' + text + ' 天';
+    select.append(option);
+  }
+  return text;
+}
+function syncReminderKind() {
+  const yearly = reminderYearly({ kind: $('reminder-kind').value });
+  $('reminder-every').disabled = yearly;
+  $('reminder-every-field').style.opacity = yearly ? '0.45' : '';
+  if (yearly) $('reminder-every').value = '0';
 }
 function pickReminder(item) {
   reminderPicked = item.id;
@@ -1723,10 +1759,16 @@ function pickReminder(item) {
   $('reminder-date').value = item.date;
   $('reminder-kind').value = item.kind;
   $('reminder-note').value = item.note || '';
+  $('reminder-advance').checked = Boolean(item.advance);
+  syncReminderKind();
+  $('reminder-every').value = reminderEveryOption(reminderEvery(item));
   $('reminder-error').hidden = true;
-  $('reminder-line').textContent = reminderYearly(item)
-    ? '每年 ' + String(item.date).slice(5) + ' 提一次。'
-    : '只在 ' + item.date + ' 提一次。';
+  const bits = [];
+  if (reminderYearly(item)) bits.push('每年 ' + String(item.date).slice(5) + ' 提一次');
+  else if (reminderEvery(item) > 0) bits.push('从 ' + item.date + ' 起，每 ' + reminderEvery(item) + ' 天提一次');
+  else bits.push('只在 ' + item.date + ' 提一次');
+  if (item.advance) bits.push('前一天再提一次');
+  $('reminder-line').textContent = bits.join('，') + '。';
   renderReminders();
 }
 function clearReminderForm() {
@@ -1735,6 +1777,9 @@ function clearReminderForm() {
   $('reminder-date').value = state.reminderDay || '';
   $('reminder-kind').value = 'exam';
   $('reminder-note').value = '';
+  $('reminder-advance').checked = false;
+  $('reminder-every').value = '0';
+  syncReminderKind();
   $('reminder-line').textContent = '';
   $('reminder-error').hidden = true;
 }
@@ -1755,7 +1800,9 @@ async function saveReminderForm() {
     title: $('reminder-title').value,
     date: $('reminder-date').value,
     kind: $('reminder-kind').value,
-    note: $('reminder-note').value
+    note: $('reminder-note').value,
+    everyDays: Number($('reminder-every').value || 0),
+    advance: $('reminder-advance').checked
   });
   reminderCache = saved.reminders || reminderCache;
   reminderPicked = saved.reminder.id;
@@ -1891,6 +1938,7 @@ function bind() {
   $('open-hf').addEventListener('click', () => window.open('https://huggingface.co/models?pipeline_tag=text-generation&sort=trending'));
   $('open-reminders').addEventListener('click', () => openReminders().catch((error) => showFormError('reminder-error', error)));
   $('reminders-close').addEventListener('click', () => $('reminders-dialog').close());
+  $('reminder-kind').addEventListener('change', syncReminderKind);
   $('reminders-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -1940,7 +1988,9 @@ function bind() {
           date,
           kind: 'other',
           note: item.location || '',
-          source: picked.path
+          source: picked.path,
+          everyDays: 0,
+          advance: false
         });
         reminderCache = saved.reminders || reminderCache;
         added += 1;
