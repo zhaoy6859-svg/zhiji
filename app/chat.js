@@ -1671,6 +1671,98 @@ async function openCases() {
   }
   if (!$('cases-dialog').open) $('cases-dialog').showModal();
 }
+const REMINDER_KIND_LABEL = { birthday: '生日', anniversary: '纪念日', meeting: '约定', exam: '考试', other: '其他' };
+let reminderCache = [];
+let reminderPicked = '';
+
+function reminderDay(date) {
+  const time = Date.parse(String(date || '') + 'T00:00:00');
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+function reminderYearly(item) {
+  return item.kind === 'birthday' || item.kind === 'anniversary';
+}
+function reminderNext(item, today) {
+  if (!reminderYearly(item)) return item.date;
+  const tail = String(item.date || '').slice(5);
+  const thisYear = String(today || '').slice(0, 4) + '-' + tail;
+  if (reminderDay(thisYear) >= reminderDay(today)) return thisYear;
+  return String(Number(String(today || '').slice(0, 4)) + 1) + '-' + tail;
+}
+function reminderWhen(item, today) {
+  const next = reminderNext(item, today);
+  const gap = Math.round((reminderDay(next) - reminderDay(today)) / 86400000);
+  if (gap === 0) return '今天';
+  if (gap === 1) return '明天';
+  if (gap > 1 && gap <= 30) return gap + ' 天后 · ' + next.slice(5);
+  return next;
+}
+function renderReminders() {
+  const host = $('reminder-list');
+  if (!host) return;
+  host.replaceChildren();
+  const today = state.reminderDay || new Date().toISOString().slice(0, 10);
+  if (!reminderCache.length) {
+    host.append(el('p', 'sheet-note', '还没有记下任何一天。'));
+    return;
+  }
+  const sorted = reminderCache.slice().sort((a, b) => reminderDay(reminderNext(a, today)) - reminderDay(reminderNext(b, today)));
+  for (const item of sorted) {
+    const row = el('button', 'reminder-row' + (item.id === reminderPicked ? ' is-picked' : ''));
+    row.type = 'button';
+    row.addEventListener('click', () => pickReminder(item));
+    row.append(el('span', 'reminder-row-title', item.title));
+    row.append(el('span', 'reminder-row-when', reminderWhen(item, today)));
+    row.append(el('span', 'reminder-row-meta', (REMINDER_KIND_LABEL[item.kind] || '其他') + (item.note ? ' · ' + item.note : '')));
+    host.append(row);
+  }
+}
+function pickReminder(item) {
+  reminderPicked = item.id;
+  $('reminder-title').value = item.title;
+  $('reminder-date').value = item.date;
+  $('reminder-kind').value = item.kind;
+  $('reminder-note').value = item.note || '';
+  $('reminder-error').hidden = true;
+  $('reminder-line').textContent = reminderYearly(item)
+    ? '每年 ' + String(item.date).slice(5) + ' 提一次。'
+    : '只在 ' + item.date + ' 提一次。';
+  renderReminders();
+}
+function clearReminderForm() {
+  reminderPicked = '';
+  $('reminder-title').value = '';
+  $('reminder-date').value = state.reminderDay || '';
+  $('reminder-kind').value = 'exam';
+  $('reminder-note').value = '';
+  $('reminder-line').textContent = '';
+  $('reminder-error').hidden = true;
+}
+async function openReminders() {
+  $('model-pop').hidden = true;
+  const data = await window.zhiji.listReminders();
+  reminderCache = data.reminders || [];
+  state.reminderDay = data.day || '';
+  if (reminderPicked && !reminderCache.some((item) => item.id === reminderPicked)) reminderPicked = '';
+  if (!reminderPicked) clearReminderForm();
+  renderReminders();
+  if (!$('reminders-dialog').open) $('reminders-dialog').showModal();
+}
+async function saveReminderForm() {
+  $('reminder-error').hidden = true;
+  const saved = await window.zhiji.saveReminder({
+    id: reminderPicked || undefined,
+    title: $('reminder-title').value,
+    date: $('reminder-date').value,
+    kind: $('reminder-kind').value,
+    note: $('reminder-note').value
+  });
+  reminderCache = saved.reminders || reminderCache;
+  reminderPicked = saved.reminder.id;
+  renderReminders();
+  pickReminder(saved.reminder);
+}
+
 function bind() {
   $('welcome-name').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') $('welcome-enter').click();
@@ -1797,6 +1889,70 @@ function bind() {
   });
   $('open-api').addEventListener('click', () => openApi().catch((error) => showFormError('api-error', error)));
   $('open-hf').addEventListener('click', () => window.open('https://huggingface.co/models?pipeline_tag=text-generation&sort=trending'));
+  $('open-reminders').addEventListener('click', () => openReminders().catch((error) => showFormError('reminder-error', error)));
+  $('reminders-close').addEventListener('click', () => $('reminders-dialog').close());
+  $('reminders-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await saveReminderForm();
+    } catch (error) {
+      showFormError('reminder-error', error);
+    }
+  });
+  $('reminder-delete').addEventListener('click', async () => {
+    if (!reminderPicked) {
+      $('reminder-line').textContent = '先在左边选一条。';
+      return;
+    }
+    try {
+      const kept = await window.zhiji.deleteReminder(reminderPicked);
+      reminderCache = kept.reminders || [];
+      clearReminderForm();
+      renderReminders();
+      $('reminder-line').textContent = '删掉了。';
+    } catch (error) {
+      showFormError('reminder-error', error);
+    }
+  });
+  $('reminder-test').addEventListener('click', async () => {
+    $('reminder-error').hidden = true;
+    try {
+      const sent = await window.zhiji.checkReminders();
+      $('reminder-line').textContent = sent && sent.length
+        ? '刚发了 ' + sent.length + ' 条通知。今天这些：' + sent.map((item) => item.title).join('、')
+        : '今天没有还没提醒过的事。';
+    } catch (error) {
+      showFormError('reminder-error', error);
+    }
+  });
+  $('reminder-import').addEventListener('click', async () => {
+    $('reminder-error').hidden = true;
+    try {
+      const picked = await window.zhiji.chooseCalendar();
+      if (!picked) return;
+      const events = picked.events || [];
+      let added = 0;
+      for (const item of events.slice(0, 40)) {
+        const date = String(item.start || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        const saved = await window.zhiji.saveReminder({
+          title: item.summary,
+          date,
+          kind: 'other',
+          note: item.location || '',
+          source: picked.path
+        });
+        reminderCache = saved.reminders || reminderCache;
+        added += 1;
+      }
+      renderReminders();
+      $('reminder-line').textContent = added
+        ? '从这份日历读进来 ' + added + ' 条。'
+        : '这份日历里没有读到能用的日期。';
+    } catch (error) {
+      showFormError('reminder-error', error);
+    }
+  });
   $('run-trial').addEventListener('click', async () => {
     $('trial-line').textContent = '正在试答。整段返回后才有用时，没有首字计时。';
     try {
@@ -2024,6 +2180,11 @@ async function init() {
   }
   bind();
   fillHourSelect();
+  if (window.zhiji.onOpenReminders) {
+    window.zhiji.onOpenReminders(() => {
+      if (state.identity) openReminders().catch(() => {});
+    });
+  }
   try {
     const data = await window.zhiji.bootstrap();
     applyBootstrap(data);

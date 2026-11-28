@@ -107,6 +107,7 @@
                 <button type="button" id="invite">请两位参看</button>
                 <button type="button" id="more-recast">重新起局</button>
                 <button type="button" id="more-cases">盘例评测</button>
+                <button type="button" id="open-reminders">提醒（生日、约定）</button>
                 <button type="button" id="open-api">自带 API</button>
                 <button type="button" id="open-hf">去 Hugging Face 选模型</button>
                 <button type="button" id="run-trial">试答这三题</button>
@@ -268,6 +269,47 @@
       </label>
       <p class="sheet-note">拖动照片，让脸落在方框里。列表、标题栏和消息旁用的是同一块。</p>
       <button class="enter slim" type="submit">用这块</button>
+    </form>
+  </dialog>
+
+  <dialog class="sheet" id="reminders-dialog">
+    <form class="sheet-card reminders-card" id="reminders-form">
+      <header class="sheet-head">
+        <h2>提醒</h2>
+        <button class="text" type="button" id="reminders-close">关闭</button>
+      </header>
+      <p class="sheet-note">生日和纪念日每年提一次；考试、约定这类只记这一天。到日子当天，知几会弹一次系统通知，内容只在这台电脑上。</p>
+      <div class="reminder-layout">
+        <div class="reminder-list" id="reminder-list"></div>
+        <div class="reminder-fields">
+          <label class="field">记什么
+            <input id="reminder-title" maxlength="24" placeholder="六级考试、妈妈生日">
+          </label>
+          <label class="field">哪一天
+            <input id="reminder-date" type="date" min="1900-01-01" max="2100-12-31">
+          </label>
+          <label class="field">哪一类
+            <select id="reminder-kind">
+              <option value="exam">考试</option>
+              <option value="meeting">约定</option>
+              <option value="birthday">生日（每年）</option>
+              <option value="anniversary">纪念日（每年）</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label class="field">备注，可不填
+            <input id="reminder-note" maxlength="40" placeholder="在哪儿、要带什么">
+          </label>
+          <p class="form-error" id="reminder-error" role="alert" hidden></p>
+          <div class="sheet-actions">
+            <button class="enter slim" id="reminder-save" type="submit">记下这一天</button>
+            <button class="text" id="reminder-import" type="button">从 .ics 导入</button>
+            <button class="text" id="reminder-test" type="button">试一下通知</button>
+            <button class="text danger" id="reminder-delete" type="button">删除</button>
+          </div>
+          <p class="sheet-note" id="reminder-line"></p>
+        </div>
+      </div>
     </form>
   </dialog>
 
