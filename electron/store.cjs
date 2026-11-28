@@ -175,7 +175,7 @@ function createStore(dbPath) {
       kind: row.kind,
       note: row.note || '',
       source: row.source || '',
-      advance: Boolean(row.advance),
+      aheadDays: Number(row.advance || 0),
       everyDays: Number(row.every_days || 0),
       notifiedOn: row.notified_on || '',
       aheadOn: row.ahead_on || '',
@@ -576,12 +576,14 @@ function createStore(dbPath) {
     const source = String(input && input.source || '').slice(0, 160);
     const profileId = input && input.profileId ? String(input.profileId) : null;
     if (profileId && !db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId)) throw new Error('找不到这份命主档案。');
-    const advance = input && (input.advance === true || input.advance === 1 || input.advance === '1') ? 1 : 0;
+    let aheadDays = Math.floor(Number(input && (input.aheadDays == null ? input.advance : input.aheadDays)));
+    if (!Number.isFinite(aheadDays) || aheadDays < 0) aheadDays = 0;
+    if (aheadDays > 60) aheadDays = 60;
     let everyDays = Math.floor(Number(input && input.everyDays));
     if (!Number.isFinite(everyDays) || everyDays < 0) everyDays = 0;
     if (everyDays > 365) everyDays = 365;
     if (yearlyOf(kind)) everyDays = 0;
-    return { id: input && input.id ? String(input.id) : '', title, date, kind, note, source, profileId, advance, everyDays };
+    return { id: input && input.id ? String(input.id) : '', title, date, kind, note, source, profileId, aheadDays, everyDays };
   }
   function listReminders() {
     return db.prepare('SELECT * FROM reminders ORDER BY date ASC, created_at ASC').all().map(mapReminder);
@@ -595,14 +597,14 @@ function createStore(dbPath) {
       && old.date === reminder.date
       && old.kind === reminder.kind
       && Number(old.every_days) === reminder.everyDays
-      && Number(old.advance) === reminder.advance;
+      && Number(old.advance) === reminder.aheadDays;
     transaction(() => {
       if (old) {
         db.prepare('UPDATE reminders SET profile_id = ?, title = ?, date = ?, kind = ?, note = ?, source = ?, advance = ?, every_days = ?, notified_on = ?, ahead_on = ? WHERE id = ?')
-          .run(reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, reminder.advance, reminder.everyDays, keepMarks ? old.notified_on : null, keepMarks ? old.ahead_on : null, id);
+          .run(reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, reminder.aheadDays, reminder.everyDays, keepMarks ? old.notified_on : null, keepMarks ? old.ahead_on : null, id);
       } else {
         db.prepare(`INSERT INTO reminders (id, profile_id, title, date, kind, note, source, advance, every_days, notified_on, ahead_on, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`).run(id, reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, reminder.advance, reminder.everyDays, now());
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`).run(id, reminder.profileId, reminder.title, reminder.date, reminder.kind, reminder.note, reminder.source, reminder.aheadDays, reminder.everyDays, now());
       }
     });
     return { reminder: mapReminder(db.prepare('SELECT * FROM reminders WHERE id = ?').get(id)), reminders: listReminders() };
@@ -630,13 +632,17 @@ function createStore(dbPath) {
   function dueReminders(day) {
     const target = String(day || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) throw new Error('日期要写成 2026-11-30 这样。');
-    const tomorrow = addDays(target, 1);
     const hits = [];
     for (const row of db.prepare('SELECT * FROM reminders ORDER BY date ASC').all()) {
       if (occursOn(row, target) && row.notified_on !== target) {
         hits.push(Object.assign(mapReminder(row), { ahead: false, target }));
-      } else if (row.advance && occursOn(row, tomorrow) && row.ahead_on !== tomorrow) {
-        hits.push(Object.assign(mapReminder(row), { ahead: true, target: tomorrow }));
+        continue;
+      }
+      const aheadDays = Number(row.advance || 0);
+      if (aheadDays <= 0) continue;
+      const occur = addDays(target, aheadDays);
+      if (occursOn(row, occur) && row.ahead_on !== occur) {
+        hits.push(Object.assign(mapReminder(row), { ahead: true, target: occur }));
       }
     }
     return hits.sort((a, b) => (a.target < b.target ? -1 : a.target > b.target ? 1 : 0));

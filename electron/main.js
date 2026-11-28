@@ -96,11 +96,13 @@ function remindToday() {
   if (!due.length) return [];
   if (!Notification.isSupported()) return [];
   for (const item of due) {
-    const body = item.ahead
-      ? '明天' + (item.note ? '：' + item.title + ' · ' + item.note : '：' + item.title)
+    const aheadDays = Number(item.aheadDays || 0);
+    const lead = item.ahead ? (aheadDays > 1 ? '还有 ' + aheadDays + ' 天' : '明天') : '';
+    const body = lead
+      ? lead + (item.note ? '：' + item.title + ' · ' + item.note : '：' + item.title)
       : item.note ? item.title + ' · ' + item.note : item.title;
     const notification = new Notification({
-      title: item.ahead ? '知几 · 明天' : '知几 · 今天',
+      title: item.ahead ? (aheadDays > 1 ? '知几 · 还有 ' + aheadDays + ' 天' : '知几 · 明天') : '知几 · 今天',
       body
     });
     notification.on('click', () => {
@@ -392,7 +394,7 @@ app.whenReady().then(() => {
   ipcMain.handle('zhiji:list-reminders', () => ({ reminders: store.listReminders(), day: localDay() }));
   ipcMain.handle('zhiji:save-reminder', (_event, input) => store.saveReminder(input || {}));
   ipcMain.handle('zhiji:delete-reminder', (_event, id) => store.deleteReminder(id));
-  ipcMain.handle('zhiji:check-reminders', () => remindToday().map((item) => ({ id: item.id, title: item.title, date: item.target || item.date, ahead: Boolean(item.ahead) })));
+  ipcMain.handle('zhiji:check-reminders', () => remindToday().map((item) => ({ id: item.id, title: item.title, date: item.target || item.date, ahead: Boolean(item.ahead), aheadDays: Number(item.aheadDays || 0) })));
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone');
   });
